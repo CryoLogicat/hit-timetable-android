@@ -1,0 +1,20 @@
+# Android / Gradle
+.gradle/
+local.properties
+**/build/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python cache (from local debugging)
+__pycache__/
+*.pyc
+
+# Private local files
+杜群瑶课表.xls
+杜群瑶课表.pdf
