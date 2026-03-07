@@ -6,9 +6,15 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
+import android.text.SpannableString
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.widget.RemoteViews
 import com.hit.timetable.MainActivity
 import com.hit.timetable.R
+import com.hit.timetable.data.CourseItem
 import com.hit.timetable.data.TimetableStorage
 import java.util.Calendar
 import kotlin.math.max
@@ -67,7 +73,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                     if (todayCourses.isEmpty()) {
                         "今天没有课程"
                     } else {
-                        todayCourses.joinToString("\n") { "${it.sectionLabel} ${it.courseName}@${it.location}" }
+                        buildColoredCourseText(todayCourses)
                     }
                 )
             }
@@ -160,7 +166,51 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             }
         }
 
+        private fun buildColoredCourseText(courses: List<CourseItem>): CharSequence {
+            val builder = SpannableStringBuilder()
+            courses.forEachIndexed { index, item ->
+                if (index > 0) builder.append('\n')
+
+                val linePrefix = "${item.sectionLabel} "
+                val lineMain = item.courseName
+                val lineSuffix = item.location.takeIf { it.isNotBlank() }?.let { "  @$it" } ?: ""
+                val lineText = linePrefix + lineMain + lineSuffix
+
+                val lineSpan = SpannableString(lineText)
+                val courseColor = COURSE_COLORS[(item.courseName.hashCode().ushr(1)) % COURSE_COLORS.size]
+                lineSpan.setSpan(
+                    ForegroundColorSpan(Color.parseColor("#FF334155")),
+                    0,
+                    linePrefix.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                lineSpan.setSpan(
+                    ForegroundColorSpan(courseColor),
+                    linePrefix.length,
+                    linePrefix.length + lineMain.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                if (lineSuffix.isNotBlank()) {
+                    lineSpan.setSpan(
+                        ForegroundColorSpan(Color.parseColor("#FF64748B")),
+                        linePrefix.length + lineMain.length,
+                        lineText.length,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                builder.append(lineSpan)
+            }
+            return builder
+        }
+
         private const val DAY_MILLIS = 24 * 60 * 60 * 1000L
         private val WEEK_SEGMENT_REGEX = Regex("\\[(.+?)](单周|双周|周)?")
+        private val COURSE_COLORS = listOf(
+            Color.parseColor("#FF1D4ED8"),
+            Color.parseColor("#FFB91C1C"),
+            Color.parseColor("#FF0F766E"),
+            Color.parseColor("#FF7C3AED"),
+            Color.parseColor("#FFB45309")
+        )
     }
 }
