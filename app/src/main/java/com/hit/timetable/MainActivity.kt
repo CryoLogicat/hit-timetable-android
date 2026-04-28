@@ -31,6 +31,9 @@ import kotlin.math.max
 
 class MainActivity : AppCompatActivity() {
     private lateinit var timetableGrid: LinearLayout
+    private lateinit var tvDisplayedWeek: TextView
+
+    private var selectedWeek: Int? = null
 
     private val storage by lazy { TimetableStorage(this) }
     private val parser by lazy { HitTimetableXlsParser() }
@@ -47,6 +50,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         timetableGrid = findViewById(R.id.timetableGrid)
+        tvDisplayedWeek = findViewById(R.id.tvDisplayedWeek)
 
         findViewById<ImageButton>(R.id.btnImport).setOnClickListener {
             openDocumentLauncher.launch(arrayOf("application/vnd.ms-excel", "*/*"))
@@ -54,6 +58,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.btnClear).setOnClickListener {
             storage.clear()
+            selectedWeek = null
             renderState(null, emptyList())
             TimetableWidgetProvider.refreshAllWidgets(this)
             Toast.makeText(this, "已清空课表", Toast.LENGTH_SHORT).show()
@@ -65,6 +70,19 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.btnGuide).setOnClickListener {
             showGuideDialog()
+        }
+
+        findViewById<ImageButton>(R.id.btnPrevWeek).setOnClickListener {
+            changeDisplayedWeek(-1)
+        }
+
+        findViewById<ImageButton>(R.id.btnNextWeek).setOnClickListener {
+            changeDisplayedWeek(1)
+        }
+
+        findViewById<ImageButton>(R.id.btnCurrentWeek).setOnClickListener {
+            selectedWeek = resolveCurrentWeekNumber() ?: DEFAULT_WEEK
+            renderSavedState()
         }
 
         val saved = storage.load()
@@ -95,6 +113,7 @@ class MainActivity : AppCompatActivity() {
 
             result.onSuccess { data ->
                 storage.save(data)
+                selectedWeek = resolveCurrentWeekNumber()
                 renderState(data.sourceTitle, data.courses, data.importedAt)
                 TimetableWidgetProvider.refreshAllWidgets(this@MainActivity)
                 Toast.makeText(this@MainActivity, "导入成功，共 ${data.courses.size} 条课程", Toast.LENGTH_LONG).show()
@@ -105,19 +124,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderState(source: String?, courses: List<CourseItem>, importedAt: Long? = null) {
-        val weekState = resolveWeekState()
+        val displayedWeek = selectedWeek ?: resolveCurrentWeekNumber()
+        updateDisplayedWeekLabel(displayedWeek, !source.isNullOrBlank())
 
         if (source.isNullOrBlank()) {
             renderTimetable(emptyList())
             return
         }
 
-        val weeklyCourses = when (weekState) {
-            is WeekState.Current -> courses.filter { isCourseInWeek(it.weekText, weekState.week) }
-            else -> courses
-        }
+        val weeklyCourses = displayedWeek
+            ?.let { week -> courses.filter { isCourseInWeek(it.weekText, week) } }
+            ?: courses
 
         renderTimetable(weeklyCourses)
+    }
+
+    private fun renderSavedState() {
+        val saved = storage.load()
+        renderState(saved?.sourceTitle, saved?.courses.orEmpty(), saved?.importedAt)
+    }
+
+    private fun changeDisplayedWeek(delta: Int) {
+        val baseWeek = selectedWeek ?: resolveCurrentWeekNumber() ?: DEFAULT_WEEK
+        selectedWeek = (baseWeek + delta).coerceIn(MIN_WEEK, MAX_WEEK)
+        renderSavedState()
+    }
+
+    private fun updateDisplayedWeekLabel(displayedWeek: Int?, hasTimetable: Boolean) {
+        tvDisplayedWeek.text = when {
+            !hasTimetable -> "未导入课表"
+            displayedWeek == null -> "全部周次"
+            displayedWeek == resolveCurrentWeekNumber() -> "第${displayedWeek}周（本周）"
+            else -> "第${displayedWeek}周"
+        }
     }
 
     private fun renderTimetable(courses: List<CourseItem>) {
@@ -431,13 +470,13 @@ class MainActivity : AppCompatActivity() {
         return max(dp(MIN_DAY_COL_WIDTH_DP), available / max(1, dayCount))
     }
 
-    private fun resolveWeekState(): WeekState {
-        val firstWeekDate = storage.loadFirstWeekDate() ?: return WeekState.NotSet
+    private fun resolveCurrentWeekNumber(): Int? {
+        val firstWeekDate = storage.loadFirstWeekDate() ?: return null
         val first = startOfDay(firstWeekDate)
         val today = startOfDay(System.currentTimeMillis())
         val diffDays = ((today - first) / DAY_MILLIS).toInt()
-        if (diffDays < 0) return WeekState.NotStarted
-        return WeekState.Current(max(1, diffDays / 7 + 1))
+        if (diffDays < 0) return null
+        return max(1, diffDays / 7 + 1).coerceAtMost(MAX_WEEK)
     }
 
     private fun isCourseInWeek(weekText: String, week: Int): Boolean {
@@ -504,6 +543,7 @@ class MainActivity : AppCompatActivity() {
                     set(Calendar.MILLISECOND, 0)
                 }
                 storage.saveFirstWeekDate(selected.timeInMillis)
+                selectedWeek = resolveCurrentWeekNumber()
                 val saved = storage.load()
                 renderState(saved?.sourceTitle, saved?.courses.orEmpty(), saved?.importedAt)
                 TimetableWidgetProvider.refreshAllWidgets(this)
@@ -532,6 +572,9 @@ class MainActivity : AppCompatActivity() {
         private const val MIN_DAY_COL_WIDTH_DP = 62
         private const val HEADER_HEIGHT_DP = 44
         private const val ROW_HEIGHT_DP = 116
+        private const val DEFAULT_WEEK = 1
+        private const val MIN_WEEK = 1
+        private const val MAX_WEEK = 30
         private val WEEK_BLOCK_REGEX = Regex("\\[(.+?)](单周|双周|周)?")
         private val COURSE_COLORS = listOf(
             Color.parseColor("#FF49A7F2"),
@@ -578,9 +621,4 @@ class MainActivity : AppCompatActivity() {
     private val ROW_HEIGHT: Int
         get() = dp(ROW_HEIGHT_DP)
 
-    private sealed class WeekState {
-        object NotSet : WeekState()
-        object NotStarted : WeekState()
-        data class Current(val week: Int) : WeekState()
-    }
 }
